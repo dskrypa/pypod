@@ -11,6 +11,7 @@ import uuid
 import platform
 import logging
 from distutils.version import LooseVersion
+from functools import cached_property
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -19,12 +20,18 @@ from .exceptions import StartServiceError, InitializationError
 from .plist_service import PlistService
 from .ssl import make_certs_and_key
 from .usbmux import MuxDevice, UsbmuxdClient
+from .utils import DictAttrProperty
 
 __all__ = ['LockdownClient']
 log = logging.getLogger(__name__)
 
 
 class LockdownClient:
+    label = 'pyMobileDevice'
+    udid = DictAttrProperty('device_info', 'UniqueDeviceID', lambda v: v.replace('-', ''))
+    unique_chip_id = DictAttrProperty('device_info', 'UniqueChipID')
+    ios_version = DictAttrProperty('device_info', 'ProductVersion', LooseVersion)
+
     def __init__(
         self,
         udid: Optional[str] = None,
@@ -36,24 +43,11 @@ class LockdownClient:
         self.sslfile = None
         self.paired = False
         self.session_id = None
+        self.host_id = self.system_buid = str(uuid.uuid3(uuid.NAMESPACE_DNS, platform.node())).upper()
         self.svc = PlistService(62078, udid, device)
-        self.hostID = self.SystemBUID = str(uuid.uuid3(uuid.NAMESPACE_DNS, platform.node())).upper()
-        self.label = 'pyMobileDevice'
-
-        assert self.queryType() == 'com.apple.mobile.lockdown'
-
-        self.allValues = self.getValue()
-        self.udid = self.allValues.get('UniqueDeviceID').replace('-', '')
-        self.UniqueChipID = self.allValues.get('UniqueChipID')
-        self.DevicePublicKey = self.allValues.get('DevicePublicKey')
-        self.ios_version = LooseVersion(self.allValues.get('ProductVersion'))
-        self.identifier = self.udid
-        if not self.identifier:
-            if self.UniqueChipID:
-                self.identifier = '%x' % self.UniqueChipID
-            else:
-                raise InitializationError('Could not get UDID or ECID, failing')
-
+        self._verify_query_type()
+        self.device_info = self.get_value()
+        self.device_public_key = self.device_info.get('DevicePublicKey')
         if not self.validate_pairing():
             self.pair()
             self.svc = PlistService(62078, udid, device)
@@ -61,8 +55,18 @@ class LockdownClient:
                 raise FatalPairingError
         self.paired = True
 
-    def queryType(self):
-        return self.svc.plist_request({'Request': 'QueryType'}).get('Type')
+    def _verify_query_type(self):
+        query_type = self.svc.plist_request({'Request': 'QueryType'}).get('Type')
+        if query_type != 'com.apple.mobile.lockdown':
+            raise InitializationError(f'Unexpected {query_type=!r}')
+
+    @cached_property
+    def identifier(self):
+        if self.udid:
+            return self.udid
+        elif self.unique_chip_id:
+            return f'{self.unique_chip_id:x}'
+        raise InitializationError('Unable to determine UDID or ECID - failing')
 
     def validate_pairing(self):
         folder = _get_lockdown_dir()
@@ -94,10 +98,10 @@ class LockdownClient:
                 log.error(f'Failed to ValidatePair: {resp}')
                 return False
 
-        self.hostID = pair_record.get('HostID', self.hostID)
-        self.SystemBUID = pair_record.get('SystemBUID', self.SystemBUID)
+        self.host_id = pair_record.get('HostID', self.host_id)
+        self.system_buid = pair_record.get('SystemBUID', self.system_buid)
 
-        d = {'Label': self.label, 'Request': 'StartSession', 'HostID': self.hostID, 'SystemBUID': self.SystemBUID}
+        d = {'Label': self.label, 'Request': 'StartSession', 'HostID': self.host_id, 'SystemBUID': self.system_buid}
         resp = self.svc.plist_request(d)
         self.session_id = resp.get('SessionID')
         if resp.get('EnableSessionSSL'):
@@ -109,18 +113,18 @@ class LockdownClient:
         return True
 
     def pair(self):
-        self.DevicePublicKey = self.getValue('', 'DevicePublicKey')
-        if self.DevicePublicKey == '':
+        self.device_public_key = self.get_value('', 'DevicePublicKey')
+        if self.device_public_key == '':
             log.error('Unable to retrieve DevicePublicKey')
             return False
 
         log.debug('Creating host key & certificate')
-        cert_pem, priv_key_pem, dev_cert_pem = make_certs_and_key(self.DevicePublicKey)
+        cert_pem, priv_key_pem, dev_cert_pem = make_certs_and_key(self.device_public_key)
         pair_record = {
-            'DevicePublicKey': plistlib.Data(self.DevicePublicKey),
+            'DevicePublicKey': plistlib.Data(self.device_public_key),
             'DeviceCertificate': plistlib.Data(dev_cert_pem),
             'HostCertificate': plistlib.Data(cert_pem),
-            'HostID': self.hostID,
+            'HostID': self.host_id,
             'RootCertificate': plistlib.Data(cert_pem),
             'SystemBUID': '30142955-444094379208051516'
         }
@@ -140,7 +144,7 @@ class LockdownClient:
             self.svc.close()
             raise PairingError
 
-    def getValue(self, domain=None, key=None):
+    def get_value(self, domain=None, key=None):
         if isinstance(key, str) and hasattr(self, 'record') and hasattr(self.record, key):
             return self.record[key]
 
@@ -156,7 +160,7 @@ class LockdownClient:
                 return r.data
             return r
 
-    def setValue(self, value, domain=None, key=None):
+    def set_value(self, value, domain=None, key=None):
         req = {'Request': 'SetValue', 'Label': self.label, 'Value': value}
         if domain:
             req['Domain'] = domain
@@ -173,6 +177,8 @@ class LockdownClient:
             raise NotPairedError
 
         req = {'Label': self.label, 'Request': 'StartService', 'Service': name}
+        if escrow_bag is True:
+            escrow_bag = self.record['EscrowBag']
         if escrow_bag:
             req['EscrowBag'] = escrow_bag
 
@@ -187,9 +193,6 @@ class LockdownClient:
         if resp.get('EnableServiceSSL', False):
             plist_service.ssl_start(self.sslfile, self.sslfile)
         return plist_service
-
-    def startServiceWithEscrowBag(self, name, escrowBag=None) -> PlistService:
-        return self.start_service(name, escrowBag or self.record['EscrowBag'])
 
     def stop_session(self):
         if self.session_id and self.svc:

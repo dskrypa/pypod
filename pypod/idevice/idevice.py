@@ -7,7 +7,7 @@ from weakref import finalize
 from ..afc import AFCClient
 from ..lockdown import LockdownClient
 from ..usbmux import USBMux
-from .utils import DictAttrProperty
+from ..utils import DictAttrProperty
 
 __all__ = ['iDevice']
 log = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class iDevice:
 
     @cached_property
     def info(self):
-        return self._lockdown.allValues
+        return self._lockdown.device_info
 
     def get_path(self, path: str) -> 'iPath':
         return iPath(path, ipod=self)
