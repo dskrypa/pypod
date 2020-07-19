@@ -76,7 +76,11 @@ class ShellCommand(ABC):
     def _rel_paths(self, locs: Iterable[str], allow_cwd=True, required=False) -> List[iPath]:
         paths = []
         for loc in locs:
-            paths.extend(self.cwd.glob(loc))
+            if loc.startswith('/'):
+                paths.append(iPath(loc, template=self.cwd))
+            else:
+                paths.extend(self.cwd.glob(loc))
+
         if not paths:
             if allow_cwd:
                 paths.append(self.cwd)
