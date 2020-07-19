@@ -7,8 +7,7 @@ from pathlib import Path
 from sys import stdout as out, stderr as err
 from typing import Dict, Iterable, List, Optional, Union, Type, Any
 
-from ...exceptions import iOSError
-
+from ...core.exceptions import iOSError
 from ...idevice.path import iPath
 from ..argparse import ShellArgParser
 from ..exceptions import ArgError, ExitLoop, UnknownCommand, ExecutionError

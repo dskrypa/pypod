@@ -12,11 +12,11 @@ from pathlib import Path, PurePosixPath
 from stat import S_IFDIR, S_IFCHR, S_IFBLK, S_IFREG, S_IFIFO, S_IFLNK, S_IFSOCK
 from typing import TYPE_CHECKING, Union, Optional
 
-from ..constants import AFC_HARDLINK
+from ..core.constants import AFC_HARDLINK
 from .files import open_ipod_file
 
 if TYPE_CHECKING:
-    from ..afc import AFCClient
+    from ..core.afc import AFCClient
 
 __all__ = ['iPath']
 log = logging.getLogger(__name__)

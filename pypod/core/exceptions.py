@@ -50,6 +50,18 @@ class InitializationError(LockdownException):
     pass
 
 
+class MuxError(PyPodException):
+    pass
+
+
+class MuxVersionError(MuxError):
+    pass
+
+
+class NoMuxDeviceFound(MuxError):
+    pass
+
+
 class iOSError(PyPodException, OSError):
     """Generic exception for AFC errors or errors that would normally be raised by the OS"""
     def __init__(self, errno=None, afc_errno=AFC_E_UNKNOWN_ERROR, *args, **kwargs):

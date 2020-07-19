@@ -11,12 +11,10 @@ from typing import TYPE_CHECKING, Optional
 from weakref import finalize
 
 # noinspection PyPackageRequirements
-from ..afc import AFCClient
-from ..constants import (
+from ..core import AFCClient, iDeviceFileClosed
+from ..core.constants import (
     AFC_FOPEN_RDONLY, AFC_FOPEN_RW, AFC_FOPEN_WRONLY, AFC_FOPEN_WR, AFC_FOPEN_APPEND, AFC_FOPEN_RDAPPEND
 )
-
-from ..exceptions import iDeviceFileClosed
 
 if TYPE_CHECKING:
     from .path import iPath

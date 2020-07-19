@@ -4,10 +4,8 @@ from functools import cached_property
 from typing import Optional
 from weakref import finalize
 
-from ..afc import AFCClient
-from ..lockdown import LockdownClient
-from ..usbmux import USBMux
-from ..utils import DictAttrProperty
+from ..core import AFCClient, LockdownClient, USBMux
+from ..core.utils import DictAttrProperty
 
 __all__ = ['iDevice']
 log = logging.getLogger(__name__)
