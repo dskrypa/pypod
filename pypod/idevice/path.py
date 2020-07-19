@@ -77,7 +77,7 @@ class iDeviceAccessor:
     lstat = stat
 
     def listdir(self, path):
-        return self.afc.read_directory(_str(path))
+        return self.afc.listdir(_str(path))
 
     def open(self, *args, **kwargs):
         raise NotImplementedError
@@ -101,7 +101,7 @@ class iDeviceAccessor:
         raise NotImplementedError
 
     def unlink(self, path):
-        return self.afc.file_remove(_str(path))
+        return self.afc.remove(_str(path))
 
     def link_to(self, src, dest, **kwargs):
         return self.afc.make_link(_str(src), _str(dest), AFC_HARDLINK)
@@ -110,7 +110,7 @@ class iDeviceAccessor:
         return self.afc.make_link(_str(src), _str(dest))  # default is symlink
 
     def rename(self, src, dest, **kwargs):
-        return self.afc.file_rename(_str(src), _str(dest))
+        return self.afc.rename(_str(src), _str(dest))
 
     replace = rename  # note: os.replace will overwrite the dest if it exists (I guess rename won't?)
 

@@ -6,9 +6,9 @@ they were native files opened via :func:`open`.
 """
 
 import logging
-import struct
-from io import UnsupportedOperation, RawIOBase, BufferedReader, BufferedWriter, BufferedRWPair, TextIOWrapper
-from typing import TYPE_CHECKING
+from io import RawIOBase, BufferedReader, BufferedWriter, BufferedRWPair, TextIOWrapper
+from struct import pack
+from typing import TYPE_CHECKING, Optional
 from weakref import finalize
 
 # noinspection PyPackageRequirements
@@ -101,10 +101,11 @@ class iPodIOBase(RawIOBase):
             raise iDeviceFileClosed(self._path)
         if size < 0:
             size = self._path.stat().st_size
+
         data = b''
         while size > 0:
             chunk_size = MAXIMUM_READ_SIZE if size > MAXIMUM_READ_SIZE else size
-            self._afc.dispatch_packet(AFC_OP_READ, struct.pack('<QQ', self._f, chunk_size))
+            self._afc.dispatch_packet(AFC_OP_READ, pack('<QQ', self._f, chunk_size))
             status, chunk = self._afc.receive_data()
             if status != AFC_E_SUCCESS:
                 raise iDeviceIOException(f'Error reading data - {status=!r}')
@@ -116,13 +117,13 @@ class iPodIOBase(RawIOBase):
         if self.closed:
             raise iDeviceFileClosed(self._path)
 
-        hh = struct.pack('<Q', self._f)
+        handle = pack('<Q', self._f)
         pos = 0
         remaining = len(data)
         while remaining:
             size = remaining if remaining < MAXIMUM_WRITE_SIZE else MAXIMUM_WRITE_SIZE
             chunk = data[pos:pos+size]
-            self._afc.dispatch_packet(AFC_OP_WRITE, hh + chunk, this_length=48)
+            self._afc.dispatch_packet(AFC_OP_WRITE, handle + chunk, length=48)
             status, chunk = self._afc.receive_data()
             if status != AFC_E_SUCCESS:
                 raise iDeviceIOException(f'Error writing data - {status=!r}')
@@ -169,8 +170,8 @@ class iPodIOBase(RawIOBase):
     def tell(self):
         return self._afc.file_tell(self._f)
 
-    def truncate(self, size=None):
-        raise UnsupportedOperation
+    def truncate(self, size: Optional[int] = None):
+        self._afc.file_truncate(self._f, size)
 
 
 # noinspection PyUnresolvedReferences

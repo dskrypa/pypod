@@ -6,7 +6,7 @@ AFC Client that handles communicating with the iDevice.
 
 import logging
 from struct import unpack, unpack_from, pack, Struct
-from typing import TYPE_CHECKING, Union, Tuple
+from typing import TYPE_CHECKING, Union, Tuple, Dict, Optional
 
 from construct.lib.containers import Container
 from construct import Const, Int64ul, core as construct_core
@@ -47,19 +47,20 @@ class AFCClient:
         log.debug('Disconnecting...')
         self.service.close()
 
-    def dispatch_packet(self, operation, data: Union[bytes, str], this_length=0):
-        dlen = 40 + len(data)
+    def dispatch_packet(self, operation, data: Union[bytes, str], length: Optional[int] = None):
+        actual_len = 40 + len(data)
         header = build_header(Container(
             magic=AFCMAGIC,
-            entire_length=dlen,
-            this_length=this_length or dlen,
+            entire_length=actual_len,
+            this_length=length or actual_len,
             packet_num=self._packet_num,
             operation=operation
         ))
         self._packet_num += 1
         if isinstance(data, str):
             data = data.encode('utf-8')
-        self._send(header + data)
+        self._send(header)
+        self._send(data)
 
     def receive_data(self) -> Tuple[int, bytes]:
         data = b''
@@ -70,71 +71,48 @@ class AFCClient:
             assert entire_length >= 40
             data = self._recv(entire_length - 40)
             if resp.operation == AFC_OP_STATUS:
-                # if length != 8:
-                #     log.error('Status length != 8')
                 status = unpack_from('<Q', data)[0]
-            # elif resp.operation != AFC_OP_DATA:
-            #     pass
 
         return status, data
 
-    def do_operation(self, opcode, data: Union[bytes, str] = b'', suffix: str = '') -> Tuple[int, bytes]:
+    def do_operation(self, opcode, data: Union[bytes, str] = b'', suffix: str = '') -> bytes:
         self.dispatch_packet(opcode, data)
         status, data = self.receive_data()
         if status != AFC_E_SUCCESS:
             code = AFC_OPERATION_NAMES.get(opcode, opcode)
             raise iOSError(None, status, f'Error processing request with {code=} {suffix}'.strip())
-        return status, data
+        return data
 
-    def list_to_dict(self, data: bytes):
-        parts = data.decode('utf-8').split('\x00')[:-1]
-        assert len(parts) % 2 == 0
-        iparts = iter(parts)
-        return dict(zip(iparts, iparts))
+    def get_device_info(self):
+        return _as_dict(self.do_operation(AFC_OP_GET_DEVINFO))
 
-    def get_device_infos(self):
-        status, infos = self.do_operation(AFC_OP_GET_DEVINFO)
-        if status == AFC_E_SUCCESS:
-            return self.list_to_dict(infos)
-
-    def read_directory(self, dirname):
-        status, data = self.do_operation(AFC_OP_READ_DIR, dirname, f'for {dirname=!r}')
-        if status == AFC_E_SUCCESS:
-            data = data.decode('utf-8')
-            return list(filter(None, data.split('\x00')))
-            # return [x for x in data.split('\x00') if x != '']
-        return []
+    def listdir(self, dirname):
+        data = self.do_operation(AFC_OP_READ_DIR, dirname, f'for {dirname=!r}')
+        return list(filter(None, data.decode('utf-8').split('\x00')))
 
     def make_directory(self, dirname):
-        status, data = self.do_operation(AFC_OP_MAKE_DIR, dirname, f'for {dirname=!r}')
-        return status
+        self.do_operation(AFC_OP_MAKE_DIR, dirname, f'for {dirname=!r}')
 
     def get_file_info(self, filename):
-        status, data = self.do_operation(AFC_OP_GET_FILE_INFO, filename, f'for {filename=!r}')
-        return self.list_to_dict(data)
+        data = self.do_operation(AFC_OP_GET_FILE_INFO, filename, f'for {filename=!r}')
+        return _as_dict(data)
 
-    def make_link(self, target, linkname, type=AFC_SYMLINK):
-        linkname = linkname.encode('utf-8')
-        status, data = self.do_operation(
+    def make_link(self, target: str, name: str, link_type=AFC_SYMLINK):
+        self.do_operation(
             AFC_OP_MAKE_LINK,
-            UInt64(type) + target + b'\x00' + linkname + b'\x00',
-            f'for {target=!r} {linkname=!r}'
+            UInt64(link_type) + target.encode('utf-8') + b'\x00' + name.encode('utf-8') + b'\x00',
+            f'for {target=!r} {name=!r}'
         )
-        log.debug('make_link: %s', status)
-        return status
 
     def file_open(self, path: str, mode=AFC_FOPEN_RDONLY):
-        status, data = self.do_operation(
-            AFC_OP_FILE_OPEN, UInt64(mode) + path.encode('utf-8') + b'\x00', f'for {path=!r}'
-        )
+        data = self.do_operation(AFC_OP_FILE_OPEN, UInt64(mode) + path.encode('utf-8') + b'\x00', f'for {path=!r}')
         return unpack('<Q', data)[0] if data else None
 
     def file_close(self, handle):
-        status, data = self.do_operation(AFC_OP_FILE_CLOSE, UInt64(handle), f'for {handle=!r}')
-        return status
+        self.do_operation(AFC_OP_FILE_CLOSE, UInt64(handle), f'for {handle=!r}')
 
     def file_tell(self, handle):
-        status, data = self.do_operation(AFC_OP_FILE_TELL, UInt64(handle), f'for {handle=!r}')
+        data = self.do_operation(AFC_OP_FILE_TELL, UInt64(handle), f'for {handle=!r}')
         return unpack('<Q', data)[0]
 
     def file_seek(self, handle, offset: int, whence: int = 0):
@@ -144,41 +122,41 @@ class AFCClient:
         :param int whence: Seek direction - one of SEEK_SET, SEEK_CUR, or SEEK_END
         :return: AFC_E_SUCCESS on success or an AFC_E_* error value
         """
-        status, data = self.do_operation(
+        data = self.do_operation(
             AFC_OP_FILE_SEEK, pack('<QQQ', handle, whence, offset), f'for {handle=!r}'
         )
-        return status
+        return unpack('<Q', data)[0]
 
-    def file_truncate(self, handle, size: int):
+    def file_truncate(self, handle, size: Optional[int] = None):
         # Based on https://github.com/bryanforbes/libimobiledevice/blob/master/src/afc.c#L1149
-        status, data = self.do_operation(AFC_OP_FILE_SET_SIZE, pack('<QQ', handle, size), f'for {handle=!r}')
-        return status
+        if size is None:
+            size = self.file_tell(handle)
+        data = self.do_operation(AFC_OP_FILE_SET_SIZE, pack('<QQ', handle, size), f'for {handle=!r}')
+        return unpack('<Q', data)[0]
 
     def file_set_mtime(self, path: str, mtime: int):
         # Note: For some reason, changing this results in the st_birthtime changing to 0
         if mtime < 2_000_000_000:
             mtime *= 1_000_000_000
-        status, data = self.do_operation(
-            AFC_OP_SET_FILE_TIME, UInt64(mtime) + path.encode('utf-8') + b'\x00', f'for {path=!r}'
-        )
-        return status
+        self.do_operation(AFC_OP_SET_FILE_TIME, UInt64(mtime) + path.encode('utf-8') + b'\x00', f'for {path=!r}')
 
-    def file_remove(self, filename):
+    def remove(self, filename):
         filename = filename.encode('utf-8')
-        separator = b'\x00'
-        status, data = self.do_operation(AFC_OP_REMOVE_PATH, filename + separator, f'for {filename=!r}')
-        return status
+        self.do_operation(AFC_OP_REMOVE_PATH, filename + b'\x00', f'for {filename=!r}')
 
-    def file_rename(self, old, new):
+    def rename(self, old: str, new: str):
         old = old.encode('utf-8')
         new = new.encode('utf-8')
-        separator = b'\x00'
-        status, data = self.do_operation(
-            AFC_OP_RENAME_PATH, old + separator + new + separator, f'for {old=!r} {new=!r}'
-        )
-        return status
+        self.do_operation(AFC_OP_RENAME_PATH, old + b'\x00' + new + b'\x00', f'for {old=!r} {new=!r}')
 
 
 class AFC2Client(AFCClient):
     def __init__(self, lockdown=None, *args, **kwargs):
         super().__init__(lockdown, 'com.apple.afc2', *args, **kwargs)
+
+
+def _as_dict(data: bytes) -> Dict[str, str]:
+    parts = data.decode('utf-8').split('\x00')[:-1]
+    assert len(parts) % 2 == 0
+    iparts = iter(parts)
+    return dict(zip(iparts, iparts))
