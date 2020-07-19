@@ -167,7 +167,7 @@ class LockdownClient:
         log.debug(resp)
         return resp
 
-    def startService(self, name, escrow_bag=None) -> PlistService:
+    def start_service(self, name, escrow_bag=None) -> PlistService:
         if not self.paired:
             log.warning('NotPaired')
             raise NotPairedError
@@ -189,7 +189,7 @@ class LockdownClient:
         return plist_service
 
     def startServiceWithEscrowBag(self, name, escrowBag=None) -> PlistService:
-        return self.startService(name, escrowBag or self.record['EscrowBag'])
+        return self.start_service(name, escrowBag or self.record['EscrowBag'])
 
     def stop_session(self):
         if self.session_id and self.svc:

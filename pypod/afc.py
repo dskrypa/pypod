@@ -7,7 +7,9 @@ AFC Client that handles communicating with the iDevice.
 import logging
 from errno import ENOTEMPTY, EINVAL
 from struct import unpack, unpack_from, pack, Struct
+from threading import RLock
 from typing import TYPE_CHECKING, Union, Tuple, Dict, Optional
+from weakref import finalize
 
 from construct.lib.containers import Container
 from construct import Const, Int64ul, core as construct_core
@@ -37,21 +39,41 @@ parse_header = AFCPacket.parse
 
 
 class AFCClient:
-    def __init__(self, lockdown=None, serviceName='com.apple.afc', service=None, udid=None):
-        self.serviceName = serviceName
-        self.lockdown = lockdown or LockdownClient(udid=udid)
-        self.service = service or self.lockdown.startService(self.serviceName)  # type: PlistService
-        self._send = self.service.sock.send
-        self._recv = self.service.recv_exact
+    _service_name = 'com.apple.afc'
+
+    def __init__(self, lockdown: Optional[LockdownClient] = None, service: Optional['PlistService'] = None, udid=None):
+        if service:
+            self._service = service                                                         # type: PlistService
+        elif lockdown:
+            self._service = lockdown.start_service(self._service_name)                      # type: PlistService
+        else:
+            self._service = LockdownClient(udid=udid).start_service(self._service_name)     # type: PlistService
+
+        self._send = self._service.sock.send
+        self._recv = self._service.recv_exact
         self._packet_num = 0
-        self._handles = {}
-        # https://docs.python.org/3/library/struct.html#format-characters
+        self._handles = {}                                                                  # type: Dict[int, str]
+        self._lock = RLock()
+        self.__finalizer = finalize(self, self.__close)
 
-    def stop_session(self):
-        log.debug('Disconnecting...')
-        self.service.close()
+    def request(
+        self,
+        operation: int,
+        data: Union[bytes, str] = b'',
+        suffix: str = '',
+        path: str = '',
+        length: Optional[int] = None,
+    ) -> bytes:
+        self._send_packet(operation, data, length)
+        status, data = self._get_response()
+        if status != AFC_E_SUCCESS:
+            if status == AFC_E_OBJECT_NOT_FOUND and path:
+                raise iFileNotFoundError(f'File/directory does not exist: {path}'.strip())
+            code = AFC_OPERATION_NAMES.get(operation, operation)
+            raise iOSError(None, status, f'Error processing request with {code=} {suffix}'.strip())
+        return data
 
-    def dispatch_packet(self, operation: int, data: Union[bytes, str], length: Optional[int] = None):
+    def _send_packet(self, operation: int, data: Union[bytes, str], length: Optional[int] = None):
         actual_len = 40 + len(data)
         header = build_header(Container(
             magic=AFCMAGIC,
@@ -66,7 +88,7 @@ class AFCClient:
         self._send(header)
         self._send(data)
 
-    def receive_data(self) -> Tuple[int, bytes]:
+    def _get_response(self) -> Tuple[int, bytes]:
         data = b''
         status = AFC_E_SUCCESS
         if header := self._recv(40):
@@ -79,35 +101,18 @@ class AFCClient:
 
         return status, data
 
-    def do_operation(
-        self,
-        operation: int,
-        data: Union[bytes, str] = b'',
-        suffix: str = '',
-        path: str = '',
-        length: Optional[int] = None,
-    ) -> bytes:
-        self.dispatch_packet(operation, data, length)
-        status, data = self.receive_data()
-        if status != AFC_E_SUCCESS:
-            if status == AFC_E_OBJECT_NOT_FOUND and path:
-                raise iFileNotFoundError(f'File/directory does not exist: {path}'.strip())
-            code = AFC_OPERATION_NAMES.get(operation, operation)
-            raise iOSError(None, status, f'Error processing request with {code=} {suffix}'.strip())
-        return data
-
     def get_device_info(self):
-        return _as_dict(self.do_operation(AFC_OP_GET_DEVINFO))
+        return _as_dict(self.request(AFC_OP_GET_DEVINFO))
 
     def listdir(self, path: str):
-        data = self.do_operation(AFC_OP_READ_DIR, path, f'for {path=!r}', path)
+        data = self.request(AFC_OP_READ_DIR, path, f'for {path=!r}', path)
         return list(filter(None, data.decode('utf-8').split('\x00')))
 
     def make_directory(self, path: str):
-        self.do_operation(AFC_OP_MAKE_DIR, path, f'for {path=!r}', path)
+        self.request(AFC_OP_MAKE_DIR, path, f'for {path=!r}', path)
 
     def get_stat_dict(self, path: str):
-        data = self.do_operation(AFC_OP_GET_FILE_INFO, path, f'for {path=!r}', path)
+        data = self.request(AFC_OP_GET_FILE_INFO, path, f'for {path=!r}', path)
         return _as_dict(data)
 
     def readlink(self, path: str) -> str:
@@ -117,32 +122,35 @@ class AFCClient:
         raise iOSError(EINVAL, None, f'Not a link: {path}')
 
     def make_link(self, target: str, name: str, link_type=AFC_SYMLINK):
-        self.do_operation(
+        self.request(
             AFC_OP_MAKE_LINK,
             UInt64(link_type) + target.encode('utf-8') + b'\x00' + name.encode('utf-8') + b'\x00',
             f'for {target=!r} {name=!r}'
         )
 
     def file_open(self, path: str, mode: int = AFC_FOPEN_RDONLY):
-        data = self.do_operation(
+        data = self.request(
             AFC_OP_FILE_OPEN, UInt64(mode) + path.encode('utf-8') + b'\x00', f'for {path=!r}', path
         )
         handle = unpack('<Q', data)[0]
-        self._handles[handle] = path
+        with self._lock:
+            self._handles[handle] = path
         return handle
 
     def _handle_path(self, handle: int) -> str:
-        try:
-            return self._handles[handle]
-        except KeyError as e:
-            raise iOSError(None, None, f'Unknown file {handle=}')
+        with self._lock:
+            try:
+                return self._handles[handle]
+            except KeyError:
+                raise iOSError(None, None, f'Unknown file {handle=}')
 
     def file_close(self, handle: int):
-        path = self._handles.pop(handle, '(UNKNOWN)')
-        self.do_operation(AFC_OP_FILE_CLOSE, UInt64(handle), f'for {path=!r} ({handle=!r})')
+        with self._lock:
+            path = self._handles.pop(handle, '(UNKNOWN)')
+        self.request(AFC_OP_FILE_CLOSE, UInt64(handle), f'for {path=!r} ({handle=!r})')
 
     def file_tell(self, handle: int):
-        data = self.do_operation(AFC_OP_FILE_TELL, UInt64(handle), f'for {handle=!r}')
+        data = self.request(AFC_OP_FILE_TELL, UInt64(handle), f'for {handle=!r}')
         return unpack('<Q', data)[0]
 
     def file_seek(self, handle: int, offset: int, whence: int = 0):
@@ -174,21 +182,21 @@ class AFCClient:
         else:
             raise iOSError(None, None, f'Invalid {whence=!r} - must be 0, 1, or 2')
 
-        self.do_operation(AFC_OP_FILE_SEEK, pack('<QQQ', handle, 0, absolute), f'for {handle=!r}', path)
+        self.request(AFC_OP_FILE_SEEK, pack('<QQQ', handle, 0, absolute), f'for {handle=!r}', path)
         return absolute
 
     def file_truncate(self, handle: int, size: Optional[int] = None):
         # Based on https://github.com/bryanforbes/libimobiledevice/blob/master/src/afc.c#L1149
         if size is None:
             size = self.file_tell(handle)
-        data = self.do_operation(AFC_OP_FILE_SET_SIZE, pack('<QQ', handle, size), f'for {handle=!r}')
+        data = self.request(AFC_OP_FILE_SET_SIZE, pack('<QQ', handle, size), f'for {handle=!r}')
         return unpack('<Q', data)[0]
 
     def file_set_mtime(self, path: str, mtime: int):
         # Note: For some reason, changing this results in the st_birthtime changing to 0
         if mtime < 2_000_000_000:
             mtime *= 1_000_000_000
-        self.do_operation(AFC_OP_SET_FILE_TIME, UInt64(mtime) + path.encode('utf-8') + b'\x00', f'for {path=!r}')
+        self.request(AFC_OP_SET_FILE_TIME, UInt64(mtime) + path.encode('utf-8') + b'\x00', f'for {path=!r}')
 
     def _is_dir(self, path: str):
         try:
@@ -206,7 +214,7 @@ class AFCClient:
 
     def remove(self, path: str):
         try:
-            self.do_operation(AFC_OP_REMOVE_PATH, path.encode('utf-8') + b'\x00', f'for {path=!r}', path)
+            self.request(AFC_OP_REMOVE_PATH, path.encode('utf-8') + b'\x00', f'for {path=!r}', path)
         except iOSError as e:
             if e.errno is None and self._is_dir(path) and not self._is_empty(path):
                 e.errno = ENOTEMPTY
@@ -216,7 +224,7 @@ class AFCClient:
     def rename(self, old: str, new: str):
         old = old.encode('utf-8')
         new = new.encode('utf-8')
-        self.do_operation(AFC_OP_RENAME_PATH, old + b'\x00' + new + b'\x00', f'for {old=!r} {new=!r}')
+        self.request(AFC_OP_RENAME_PATH, old + b'\x00' + new + b'\x00', f'for {old=!r} {new=!r}')
 
     def read(self, path: str, handle: Optional[int] = None, size: int = -1) -> bytes:
         if handle and not path:
@@ -235,7 +243,7 @@ class AFCClient:
         while size > 0:
             chunk_size = MAXIMUM_READ_SIZE if size > MAXIMUM_READ_SIZE else size
             next_pos = pos + chunk_size
-            view[pos:next_pos] = self.do_operation(AFC_OP_READ, pack('<QQ', handle, chunk_size), suffix, path)
+            view[pos:next_pos] = self.request(AFC_OP_READ, pack('<QQ', handle, chunk_size), suffix, path)
             size -= chunk_size
             pos = next_pos
         return data
@@ -255,15 +263,37 @@ class AFCClient:
             chunk_size = remaining if remaining < MAXIMUM_WRITE_SIZE else MAXIMUM_WRITE_SIZE
             next_pos = pos + chunk_size
             # noinspection PyTypeChecker
-            self.do_operation(AFC_OP_WRITE, _handle + view[pos:next_pos], suffix, path, length=48)
+            self.request(AFC_OP_WRITE, _handle + view[pos:next_pos], suffix, path, length=48)
             remaining -= chunk_size
             pos = next_pos
         return length
 
+    def __close(self):
+        with self._lock:
+            if self._service is not None:
+                for handle, path in list(self._handles.items()):
+                    try:
+                        self.file_close(handle)
+                    except Exception as e:
+                        log.debug(f'Error closing {path=!r} {handle=!r}: {e}')
+                try:
+                    self._service.close()
+                except Exception as e:
+                    log.debug(f'Error closing {self._service}: {e}')
+                self._service = None
+                self._send = None
+                self._recv = None
+
+    def close(self):
+        if self.__finalizer.detach():
+            self.__close()
+
+    def __del__(self):
+        self.close()
+
 
 class AFC2Client(AFCClient):
-    def __init__(self, lockdown=None, *args, **kwargs):
-        super().__init__(lockdown, 'com.apple.afc2', *args, **kwargs)
+    _service_name = 'com.apple.afc2'
 
 
 def _as_dict(data: bytes) -> Dict[str, str]:
