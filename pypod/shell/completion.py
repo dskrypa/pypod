@@ -11,7 +11,6 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
 from ..idevice.path import iPath
-from ..afc.exceptions import iOSError
 
 __all__ = ['FileCompleter']
 log = logging.getLogger(__name__)

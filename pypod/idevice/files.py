@@ -7,18 +7,16 @@ they were native files opened via :func:`open`.
 
 import logging
 from io import RawIOBase, BufferedReader, BufferedWriter, BufferedRWPair, TextIOWrapper
-from struct import pack
 from typing import TYPE_CHECKING, Optional
 from weakref import finalize
 
 # noinspection PyPackageRequirements
 from ..afc import AFCClient
-from ..afc.constants import (
-    AFC_FOPEN_RDONLY, AFC_FOPEN_RW, AFC_FOPEN_WRONLY, AFC_FOPEN_WR, AFC_FOPEN_APPEND, AFC_FOPEN_RDAPPEND,
-    AFC_OP_READ, AFC_OP_WRITE, AFC_E_SUCCESS
+from ..constants import (
+    AFC_FOPEN_RDONLY, AFC_FOPEN_RW, AFC_FOPEN_WRONLY, AFC_FOPEN_WR, AFC_FOPEN_APPEND, AFC_FOPEN_RDAPPEND
 )
 
-from .exceptions import iDeviceIOException, iDeviceFileClosed
+from ..exceptions import iDeviceFileClosed
 
 if TYPE_CHECKING:
     from .path import iPath
@@ -96,40 +94,18 @@ class iPodIOBase(RawIOBase):
         if self.__finalizer.detach():
             self.__close()
 
+    def __del__(self):
+        self.close()
+
     def read(self, size=-1) -> bytes:
         if self.closed:
             raise iDeviceFileClosed(self._path)
-        if size < 0:
-            size = self._path.stat().st_size
-
-        data = b''
-        while size > 0:
-            chunk_size = MAXIMUM_READ_SIZE if size > MAXIMUM_READ_SIZE else size
-            self._afc.dispatch_packet(AFC_OP_READ, pack('<QQ', self._f, chunk_size))
-            status, chunk = self._afc.receive_data()
-            if status != AFC_E_SUCCESS:
-                raise iDeviceIOException(f'Error reading data - {status=!r}')
-            size -= chunk_size
-            data += chunk
-        return data
+        return self._afc.read(self._path.as_posix(), self._f, size)
 
     def write(self, data: bytes):
         if self.closed:
             raise iDeviceFileClosed(self._path)
-
-        handle = pack('<Q', self._f)
-        pos = 0
-        remaining = len(data)
-        while remaining:
-            size = remaining if remaining < MAXIMUM_WRITE_SIZE else MAXIMUM_WRITE_SIZE
-            chunk = data[pos:pos+size]
-            self._afc.dispatch_packet(AFC_OP_WRITE, handle + chunk, length=48)
-            status, chunk = self._afc.receive_data()
-            if status != AFC_E_SUCCESS:
-                raise iDeviceIOException(f'Error writing data - {status=!r}')
-            remaining -= size
-
-        return len(data)
+        return self._afc.write(self._path.as_posix(), data, self._f)
 
     def flush(self):
         return None
@@ -147,25 +123,7 @@ class iPodIOBase(RawIOBase):
         return True
 
     def seek(self, offset, whence=0):
-        # absolute position is calculated here instead of passing whence value because it doesn't seem to support
-        # negative offsets
-        if whence == 0:  # absolute
-            absolute = offset
-        elif whence == 1:  # from current position
-            absolute = self.tell() + offset
-            size = self._path.stat().st_size
-            if absolute < 0 or absolute > size:
-                raise ValueError(f'Resolved {absolute=} for {offset=} is invalid ({size=})')
-            log.debug(f'Seeking to pos={absolute} [{size=}]')
-        elif whence == 2:  # from end
-            if offset > 0:
-                raise ValueError(f'{offset=!r} is invalid when whence == 2')
-            size = self._path.stat().st_size
-            absolute = size + offset
-            log.debug(f'Seeking to pos={absolute} [{size=}]')
-        else:
-            raise ValueError(f'Invalid {whence=} - must be 0, 1, or 2')
-        return self._afc.file_seek(self._f, absolute, 0)
+        return self._afc.file_seek(self._f, offset, whence)
 
     def tell(self):
         return self._afc.file_tell(self._f)

@@ -7,16 +7,17 @@ native Path objects.
 
 import logging
 import time
-from errno import ENOENT, EINVAL
+from errno import EINVAL
 from functools import cached_property, partialmethod
 from pathlib import Path, PurePosixPath
 from stat import S_IFDIR, S_IFCHR, S_IFBLK, S_IFREG, S_IFIFO, S_IFLNK, S_IFSOCK
-from typing import Union, Optional
+from typing import TYPE_CHECKING, Union, Optional
 
-from ..afc import AFCClient
-from ..afc.constants import AFC_HARDLINK
-
+from ..constants import AFC_HARDLINK
 from .files import open_ipod_file
+
+if TYPE_CHECKING:
+    from ..afc import AFCClient
 
 __all__ = ['iPath']
 log = logging.getLogger(__name__)
@@ -70,9 +71,7 @@ class iDeviceAccessor:
         self.afc = ipod.afc  # type: AFCClient
 
     def stat(self, path):
-        if stat_dict := self.afc.get_file_info(_str(path)):
-            return iDeviceStatResult(stat_dict)
-        raise FileNotFoundError(ENOENT, f'The system cannot find the file specified')
+        return iDeviceStatResult(self.afc.get_stat_dict(_str(path)))
 
     lstat = stat
 
@@ -98,19 +97,19 @@ class iDeviceAccessor:
         return self.afc.make_directory(_str(path))
 
     def rmdir(self, path):
-        raise NotImplementedError
+        self.afc.remove(_str(path))
 
     def unlink(self, path):
-        return self.afc.remove(_str(path))
+        self.afc.remove(_str(path))
 
     def link_to(self, src, dest, **kwargs):
-        return self.afc.make_link(_str(src), _str(dest), AFC_HARDLINK)
+        self.afc.make_link(_str(src), _str(dest), AFC_HARDLINK)
 
     def symlink(self, src, dest, **kwargs):
-        return self.afc.make_link(_str(src), _str(dest))  # default is symlink
+        self.afc.make_link(_str(src), _str(dest))  # default is symlink
 
     def rename(self, src, dest, **kwargs):
-        return self.afc.rename(_str(src), _str(dest))
+        self.afc.rename(_str(src), _str(dest))
 
     replace = rename  # note: os.replace will overwrite the dest if it exists (I guess rename won't?)
 
@@ -118,12 +117,10 @@ class iDeviceAccessor:
         raise NotImplementedError
 
     def readlink(self, path):
-        path = _str(path)
-        if info := self.afc.get_file_info(path):
-            if info['st_ifmt'] == 'S_IFLNK':
-                return info['LinkTarget']
-            raise OSError(EINVAL, f'Not a link: {path}')
-        raise OSError(EINVAL, f'Path does not exist: {path}')
+        stat_dict = self.afc.get_stat_dict(_str(path))
+        if stat_dict['st_ifmt'] == 'S_IFLNK':
+            return stat_dict['LinkTarget']
+        raise OSError(EINVAL, f'Not a link: {path}')
 
 
 class iDeviceStatResult:
