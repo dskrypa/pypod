@@ -2,7 +2,7 @@
 import logging
 import shlex
 from abc import ABC, abstractmethod
-from io import TextIOBase, RawIOBase  # StringIO, BytesIO
+from io import TextIOBase, RawIOBase
 from pathlib import Path
 from sys import stdout as out, stderr as err
 from typing import Dict, Iterable, List, Optional, Union, Type, Any
@@ -67,25 +67,37 @@ class ShellCommand(ABC):
             text = str(text)
         self.stderr.write(text + '\n')
 
-    def _rel_path(self, loc) -> iPath:
+    def _rel_path(self, loc: str, allow_cwd=True) -> iPath:
         # noinspection PyUnboundLocalVariable,PyUnresolvedReferences
         if '*' in loc and (paths := list(self.cwd.glob(loc))) and len(paths) == 1:
             return paths[0]
-        return self.cwd.joinpath(loc) if loc else self.cwd
+        elif loc.startswith('~'):
+            raise ArgError(f'{self.name}: Home directories are not supported for iDevice paths')
+        elif loc:
+            return self.cwd.joinpath(loc)
+        elif allow_cwd:
+            return self.cwd
+        raise ArgError(f'{self.name}: A file must be specified')
 
     def _rel_paths(self, locs: Iterable[str], allow_cwd=True, required=False) -> List[iPath]:
         paths = []
+        no_matches = []
         for loc in locs:
+            last = len(paths)
             if loc.startswith('/'):
                 paths.append(iPath(loc, template=self.cwd))
             else:
                 paths.extend(self.cwd.glob(loc))
+            if len(paths) == last:
+                no_matches.append(loc)
 
         if not paths:
             if allow_cwd:
                 paths.append(self.cwd)
             elif required:
-                raise ArgError('At least one file must be specified')
+                if no_matches:
+                    raise ArgError(f'{self.name}: File does not exist: {no_matches}')
+                raise ArgError(f'{self.name}: At least one file must be specified')
         return paths
 
     def _rel_to_cwd(self, path: iPath) -> str:
@@ -104,15 +116,16 @@ class ShellCommand(ABC):
         return False
 
     def _get_cross_platform_paths(self, source: Iterable[str], dest: str, mode: str = 'ipod'):
+        log.debug(f'_get_cross_platform_paths({source=!r}, {dest=!r}, {mode=!r})')
         if mode == 'i2p':
-            sources = self._rel_paths(source)
-            dest = Path(dest).resolve()
+            sources = self._rel_paths(source, False, True)
+            dest = Path(dest).expanduser().resolve()
         elif mode == 'p2i':
-            sources = [Path(p).resolve() for p in source]
-            dest = self._rel_path(dest)
+            sources = [Path(p).expanduser().resolve() for p in source]
+            dest = self._rel_path(dest, False)
         elif mode == 'ipod':
-            sources = self._rel_paths(source)
-            dest = self._rel_path(dest)
+            sources = self._rel_paths(source, False, True)
+            dest = self._rel_path(dest, False)
         else:
             raise ExecutionError(self.name, f'Unexpected {mode=}')
         return sources, dest

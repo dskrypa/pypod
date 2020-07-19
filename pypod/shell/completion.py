@@ -1,10 +1,20 @@
+"""
+Command completion for the iDevice shell.  Handles providing file/directory names.
 
+:author: Doug Skrypa
+"""
+
+import logging
 from typing import Iterable, Optional
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
 from ..idevice.path import iPath
+from ..afc.exceptions import iOSError
+
+__all__ = ['FileCompleter']
+log = logging.getLogger(__name__)
 
 
 class FileCompleter(Completer):
@@ -31,7 +41,9 @@ class FileCompleter(Completer):
             else:
                 cwd = self.cwd
 
-            if cwd not in self._path_cache:
+            if not cwd.exists():
+                return []
+            elif cwd not in self._path_cache:
                 prefix = cwd.as_posix() if path.startswith('/') and path != '/' else cwd.as_posix()[1:]
                 self._path_cache[cwd] = [f'{prefix}/{p.name}' for p in cwd.iterdir()]
 

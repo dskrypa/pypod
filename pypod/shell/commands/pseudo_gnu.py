@@ -174,6 +174,8 @@ class Copy(ShellCommand, cmd='cp'):
         sources, dest = self._get_cross_platform_paths(source, dest, mode)
         if len(sources) > 1 and not dest.is_dir():
             raise ExecutionError(self.name, 'When multiple source files are specified, dest must be a directory')
+        elif not dest.is_dir() and not dest.parent.exists():
+            raise ExecutionError(self.name, f'Location does not exist: {dest}')
 
         prefix = '[DRY RUN] Would copy' if dry_run else 'Copying'
         for path in sources:
