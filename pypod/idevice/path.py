@@ -7,7 +7,6 @@ native Path objects.
 
 import logging
 import time
-from errno import EINVAL
 from functools import cached_property, partialmethod
 from pathlib import Path, PurePosixPath
 from stat import S_IFDIR, S_IFCHR, S_IFBLK, S_IFREG, S_IFIFO, S_IFLNK, S_IFSOCK
@@ -53,7 +52,7 @@ class iPath(Path, PurePosixPath):
             self._ipod = ipod
             self._accessor = iDeviceAccessor(ipod)
 
-    open = partialmethod(open_ipod_file)
+    open = partialmethod(open_ipod_file)  # Path.open calls io.open, which passes numeric mode/encoding to accessor.open
 
     def touch(self, mode=None, exist_ok=True):
         self._ipod.afc.file_set_mtime(self.resolve().as_posix(), int(time.time()))
@@ -78,7 +77,7 @@ class iDeviceAccessor:
     def listdir(self, path):
         return self.afc.listdir(_str(path))
 
-    def open(self, *args, **kwargs):
+    def open(self, path, *args, **kwargs):
         raise NotImplementedError
 
     def scandir(self, path):
@@ -117,10 +116,7 @@ class iDeviceAccessor:
         raise NotImplementedError
 
     def readlink(self, path):
-        stat_dict = self.afc.get_stat_dict(_str(path))
-        if stat_dict['st_ifmt'] == 'S_IFLNK':
-            return stat_dict['LinkTarget']
-        raise OSError(EINVAL, f'Not a link: {path}')
+        return self.afc.readlink(_str(path))
 
 
 class iDeviceStatResult:

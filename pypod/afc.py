@@ -5,7 +5,7 @@ AFC Client that handles communicating with the iDevice.
 """
 
 import logging
-from errno import ENOTEMPTY
+from errno import ENOTEMPTY, EINVAL
 from struct import unpack, unpack_from, pack, Struct
 from typing import TYPE_CHECKING, Union, Tuple, Dict, Optional
 
@@ -14,7 +14,7 @@ from construct import Const, Int64ul, core as construct_core
 
 from .lockdown import LockdownClient
 from .constants import *  # noqa
-from .exceptions import iOSError, iFileNotFoundError, iDeviceIOException
+from .exceptions import iOSError, iFileNotFoundError
 
 if TYPE_CHECKING:
     from .plist_service import PlistService
@@ -109,6 +109,12 @@ class AFCClient:
     def get_stat_dict(self, path: str):
         data = self.do_operation(AFC_OP_GET_FILE_INFO, path, f'for {path=!r}', path)
         return _as_dict(data)
+
+    def readlink(self, path: str) -> str:
+        stat_dict = self.get_stat_dict(path)
+        if stat_dict['st_ifmt'] == 'S_IFLNK':
+            return stat_dict['LinkTarget']
+        raise iOSError(EINVAL, None, f'Not a link: {path}')
 
     def make_link(self, target: str, name: str, link_type=AFC_SYMLINK):
         self.do_operation(

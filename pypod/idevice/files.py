@@ -39,6 +39,7 @@ MAXIMUM_WRITE_SIZE = 1 << 15
 
 
 def open_ipod_file(path: 'iPath', mode: str = 'r', encoding=None, newline=None):
+    # log.info(f'open_ipod_file({path=!r}, {mode=:x}, {encoding=:x}, {newline=!r})')
     orig_mode = mode
     if mode.endswith('b'):
         encoding = None

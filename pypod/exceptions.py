@@ -69,9 +69,5 @@ class iFileNotFoundError(PyPodException, FileNotFoundError):
         super().__init__(ENOENT, *args, **kwargs)
 
 
-class iDeviceIOException(iOSError):
-    pass
-
-
 class iDeviceFileClosed(iOSError):
     pass
