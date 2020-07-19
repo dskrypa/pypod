@@ -14,7 +14,6 @@ from typing import Optional
 
 from prompt_toolkit import PromptSession, ANSI
 from prompt_toolkit.history import FileHistory
-# from prompt_toolkit.styles import Style
 
 from ..idevice import iDevice, iPath
 from .color import colored
@@ -26,15 +25,6 @@ from .utils import Terminal
 __all__ = ['iDeviceShell']
 log = logging.getLogger(__name__)
 HISTORY_PATH = Path('~/.config/pypod/idevice_shell.history').expanduser()
-
-# ps1_style = Style.from_dict({
-#     '': '7',  # user input
-#     'time': '11',
-#     'name': '14',
-#     'path': '11',
-#     'n': '10',
-#     'prompt': '11',
-# })
 
 
 class iDeviceShell:
@@ -63,17 +53,9 @@ class iDeviceShell:
                 break
 
     def _handle_input(self):
-        # prompt = {
-        #     'time': datetime.now().strftime('[%H:%M:%S]'),
-        #     'name': self.ipod.name,
-        #     'path': self.cwd,
-        #     'n': next(self._num),
-        #     'prompt': '$ ',
-        # }
         prompt = self._ps1.format(datetime.now().strftime('[%H:%M:%S]'), self.cwd, next(self._num))
         # noinspection PyTypeChecker
         if input_line := self.session.prompt(ANSI(prompt), completer=self.completer(self.cwd)).strip():
-        # if input_line := self.session.prompt(prompt, completer=self.completer(self.cwd), style=ps1_style).strip():
             try:
                 if cwd := run_shell_command(self.cwd, input_line):
                     self.cwd = cwd

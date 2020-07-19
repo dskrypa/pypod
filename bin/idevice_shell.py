@@ -10,7 +10,6 @@ import _venv  # This will activate the venv, if it exists and is not already act
 import logging
 from argparse import ArgumentParser
 
-# sys.path.insert(0, 'C:/Users/dougs/git/pymobiledevice')
 sys.path.insert(0, PROJECT_ROOT.as_posix())
 from pypod.__version__ import __author_email__, __version__
 from pypod.shell import iDeviceShell
