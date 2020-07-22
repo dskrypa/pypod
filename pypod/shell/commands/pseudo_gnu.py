@@ -1,4 +1,5 @@
 
+import hashlib
 import logging
 from datetime import datetime
 from typing import Iterable
@@ -207,6 +208,52 @@ class Mkdir(ShellCommand, cmd='mkdir'):
                 self.print(f'{prefix} {self._rel_to_cwd(path)}')
                 if not dry_run:
                     path.mkdir(parents=parents)
+
+
+class Hash(ShellCommand, cmd='hash'):
+    _hash_funcs = ('sha512', 'sha256', 'sha1', 'md5')
+    parser = ShellArgParser('hash', description='Hash the FILE(s) using the specified algorithms.')
+    parser.add_argument('file', nargs='+', help='The files to hash')
+    fn_group = parser.add_argument_group('Hash Function Options').add_mutually_exclusive_group()
+    fn_group.add_argument('--funcs', '-f', default=['sha512'], choices=_hash_funcs, help='The hash function(s) to use')
+    fn_group.add_argument('--all', '-A', action='store_const', const=_hash_funcs, dest='funcs', help='Use all hash functions available')
+
+    def __call__(self, file: Iterable[str], funcs: Iterable[str]):
+        funcs = sorted(funcs)
+        n = -1
+        for path in self._rel_paths(file, False, True):
+            if self._is_file(path, 'hash'):
+                n += 1
+                if n:
+                    self.print()
+                self.print(f'{path}:')
+                with path.open('rb') as f:
+                    data = f.read()
+
+                for func in funcs:
+                    hash_func = getattr(hashlib, func)()
+                    hash_func.update(data)
+                    self.print(f'{func:>6s}: {hash_func.hexdigest()}')
+
+
+class Find(ShellCommand, cmd='find'):
+    parser = ShellArgParser('find', description='Find files with the given name')
+    parser.add_argument('name', help='The exact name of the file to find')  # TODO: Allow glob/regex/etc
+    parser.add_argument('--one', '-1', action='store_true', help='Stop after one match is found')
+
+    def __call__(self, name: str, one: bool = False):
+        # TODO: Implement walk for iPaths
+        for path in self.cwd.iterdir():
+            if path.name == name:
+                self.print(path)
+                if one:
+                    break
+            elif path.is_dir():
+                for sub_path in path.iterdir():
+                    if sub_path.name == name:
+                        self.print(sub_path)
+                        if one:
+                            break
 
 
 # class Rmdir(ShellCommand, cmd='rmdir'):

@@ -18,6 +18,9 @@ IO = Union[TextIOBase, RawIOBase]
 
 
 def run_shell_command(cwd: iPath, input_str: str) -> Optional[iPath]:
+    # TODO: dict of aliases - replace first word in cmd with the alias
+    # TODO: Store aliases in json in homedir config
+    # TODO: Alias command to store a new alias in homedir config json
     name, *raw_args = shlex.split(input_str)
     try:
         cmd_cls = ShellCommand._commands[name]
@@ -56,8 +59,10 @@ class ShellCommand(ABC):
     def parser(self) -> ShellArgParser:
         raise NotImplementedError
 
-    def print(self, text: Any):
-        if not isinstance(text, str):
+    def print(self, text: Any = None):
+        if text is None:
+            text = ''
+        elif not isinstance(text, str):
             text = str(text)
         self.stdout.write(text + '\n')
 

@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 class FileCompleter(Completer):
     _complete_with_dirs = {'cd'}
-    _complete_with_files = {'cat', 'rm', 'head', 'touch', 'cp', 'tags'}
+    _complete_with_files = {'cat', 'rm', 'head', 'touch', 'cp', 'tags', 'hash'}
     _complete_with_any = {'stat', 'ls', 'lst', 'mkdir'}
     _complete_cmds = _complete_with_dirs.union(_complete_with_files).union(_complete_with_any)
 
