@@ -198,6 +198,10 @@ class AFCClient:
             mtime *= 1_000_000_000
         self.request(AFC_OP_SET_FILE_TIME, UInt64(mtime) + path.encode('utf-8') + b'\x00', f'for {path=!r}')
 
+    def get_file_hash(self, path: str):
+        """Returns the sha1 hash of the file with the given path."""
+        return self.request(AFC_OP_GET_FILE_HASH, path.encode('utf-8') + b'\x00', f'for {path=!r}', path)
+
     def _is_dir(self, path: str):
         try:
             stat_dict = self.get_stat_dict(path)
@@ -267,6 +271,10 @@ class AFCClient:
             remaining -= chunk_size
             pos = next_pos
         return length
+
+    def get_path_contents_size(self, path: str):
+        # Seems to always result in AFC_E_OBJECT_NOT_FOUND - I may be calling it incorrectly
+        return self.request(AFC_OP_GET_SIZE_OF_PATH_CONTENTS, path.encode('utf-8') + b'\x00', f'for {path=!r}', path)
 
     def __close(self):
         with self._lock:

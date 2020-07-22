@@ -173,10 +173,13 @@ class Copy(ShellCommand, cmd='cp'):
 
     def __call__(self, source: Iterable[str], dest: str, mode: str = 'ipod', dry_run=False):
         sources, dest = self._get_cross_platform_paths(source, dest, mode)
-        if len(sources) > 1 and not dest.is_dir():
+        if len(sources) > 1 and dest.exists() and not dest.is_dir():
             raise ExecutionError(self.name, 'When multiple source files are specified, dest must be a directory')
         elif not dest.is_dir() and not dest.parent.exists():
             raise ExecutionError(self.name, f'Location does not exist: {dest}')
+
+        if len(sources) > 1 and not dest.exists():
+            dest.mkdir(parents=True)
 
         prefix = '[DRY RUN] Would copy' if dry_run else 'Copying'
         for path in sources:
@@ -211,7 +214,7 @@ class Mkdir(ShellCommand, cmd='mkdir'):
 
 
 class Hash(ShellCommand, cmd='hash'):
-    _hash_funcs = ('sha512', 'sha256', 'sha1', 'md5')
+    _hash_funcs = ('sha512', 'sha256', 'sha1', 'md5', 'ipod_sha1')
     parser = ShellArgParser('hash', description='Hash the FILE(s) using the specified algorithms.')
     parser.add_argument('file', nargs='+', help='The files to hash')
     fn_group = parser.add_argument_group('Hash Function Options').add_mutually_exclusive_group()
@@ -231,9 +234,13 @@ class Hash(ShellCommand, cmd='hash'):
                     data = f.read()
 
                 for func in funcs:
-                    hash_func = getattr(hashlib, func)()
-                    hash_func.update(data)
-                    self.print(f'{func:>6s}: {hash_func.hexdigest()}')
+                    if func == 'ipod_sha1':
+                        hash_value = self.ipod.afc.get_file_hash(path.as_posix()).hex()
+                    else:
+                        hash_func = getattr(hashlib, func)()
+                        hash_func.update(data)
+                        hash_value = hash_func.hexdigest()
+                    self.print(f'{func:>6s}: {hash_value}')
 
 
 class Find(ShellCommand, cmd='find'):
