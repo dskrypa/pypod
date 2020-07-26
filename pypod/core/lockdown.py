@@ -199,14 +199,14 @@ class LockdownClient:
         log.debug(self.svc.plist_request({'Request': 'EnterRecovery'}))
 
 
-def get_home_path(foldername, filename):
+def get_home_path(foldername: str, filename: str) -> Path:
     path = Path('~').expanduser().joinpath(foldername)
     if not path.exists():
         path.mkdir(parents=True)
     return path.joinpath(filename)
 
 
-def read_home_file(foldername, filename):
+def read_home_file(foldername: str, filename: str) -> Optional[bytes]:
     path = get_home_path(foldername, filename)
     if not path.exists():
         return None
@@ -214,7 +214,7 @@ def read_home_file(foldername, filename):
         return f.read()
 
 
-def write_home_file(foldername, filename, data):
+def write_home_file(foldername: str, filename: str, data: bytes) -> str:
     path = get_home_path(foldername, filename)
     with path.open('wb') as f:
         f.write(data)
