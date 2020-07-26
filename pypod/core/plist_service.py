@@ -20,11 +20,19 @@ HARDWARE_PLATFORM_SUB = re.compile(r'[^\w<>/ \-_0-9\"\'\\=.?!+]+').sub
 
 
 class PlistService:
-    def __init__(self, port, udid: Optional[str] = None, device: Optional[MuxDevice] = None):
+    def __init__(
+        self,
+        port: int,
+        udid: Optional[str] = None,
+        device: Optional[MuxDevice] = None,
+        ssl_file: Optional[str] = None,
+    ):
         self.port = port
         self.device = device or USBMux().find_device(udid, 0.1)
         log.debug(f'Connecting to device: {self.device.serial}')
         self.sock = self.device.connect(port)  # type: socket
+        if ssl_file:
+            self.ssl_start(ssl_file, ssl_file)
 
     def ssl_start(self, keyfile, certfile):
         self.sock = ssl.wrap_socket(self.sock, keyfile, certfile, ssl_version=ssl.PROTOCOL_TLSv1)
