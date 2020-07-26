@@ -11,9 +11,6 @@ from threading import RLock
 from typing import TYPE_CHECKING, Union, Tuple, Dict, Optional
 from weakref import finalize
 
-from construct.lib.containers import Container
-from construct import Const, Int64ul, core as construct_core
-
 from .lockdown import LockdownClient
 from .constants import *  # noqa
 from .exceptions import iOSError, iFileNotFoundError
@@ -26,16 +23,9 @@ log = logging.getLogger(__name__)
 
 MAXIMUM_READ_SIZE = 1 << 16
 MAXIMUM_WRITE_SIZE = 1 << 15
-AFCPacket = construct_core.Struct(
-    magic=Const(AFCMAGIC),
-    entire_length=Int64ul,
-    this_length=Int64ul,
-    packet_num=Int64ul,
-    operation=Int64ul,
-)
 UInt64 = Struct('<Q').pack
-build_header = AFCPacket.build
-parse_header = AFCPacket.parse
+AFCHeader = Struct('<8s4Q').pack
+AFCHeaderData = Struct('<4Q').unpack_from
 
 
 class AFCClient:
@@ -75,13 +65,7 @@ class AFCClient:
 
     def _send_packet(self, operation: int, data: Union[bytes, str], length: Optional[int] = None):
         actual_len = 40 + len(data)
-        header = build_header(Container(
-            magic=AFCMAGIC,
-            entire_length=actual_len,
-            this_length=length or actual_len,
-            packet_num=self._packet_num,
-            operation=operation
-        ))
+        header = AFCHeader(AFCMAGIC, actual_len, length or actual_len, self._packet_num, operation)
         self._packet_num += 1
         if isinstance(data, str):
             data = data.encode('utf-8')
@@ -92,11 +76,10 @@ class AFCClient:
         data = b''
         status = AFC_E_SUCCESS
         if header := self._recv(40):
-            resp = parse_header(header)
-            entire_length = resp['entire_length']
+            entire_length, this_length, packet_num, operation = AFCHeaderData(header, 8)
             assert entire_length >= 40
             data = self._recv(entire_length - 40)
-            if resp.operation == AFC_OP_STATUS:
+            if operation == AFC_OP_STATUS:
                 status = unpack_from('<Q', data)[0]
 
         return status, data

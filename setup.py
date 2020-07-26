@@ -26,7 +26,6 @@ optional_dependencies = {
 optional_dependencies['ALL'] = sorted(set(chain.from_iterable(optional_dependencies.values())))
 
 requirements = [
-    'construct',
     'pyasn1',
     'pyopenssl',
 ]
