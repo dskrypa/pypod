@@ -13,14 +13,14 @@ from .utils import readable_bytes, Printer
 log = logging.getLogger(__name__)
 
 
-class Pwd(ShellCommand, cmd='pwd'):
+class PrintWorkingDirectory(ShellCommand, cmd='pwd'):
     parser = ShellArgParser('pwd', description='Print the current working directory')
 
     def __call__(self, **kwargs):
         self.print(self.cwd)
 
 
-class Cd(ShellCommand, cmd='cd'):
+class ChangeDirectory(ShellCommand, cmd='cd'):
     parser = ShellArgParser('cd', description='Change the shell working directory.')
     parser.add_argument('directory', help='The directory to be the new working directory')
 
@@ -35,7 +35,7 @@ class Cd(ShellCommand, cmd='cd'):
             self.error(f'cd: {directory}: No such file or directory')
 
 
-class Ls(ShellCommand, cmd='ls'):
+class ListFiles(ShellCommand, cmd='ls'):
     parser = ShellArgParser('ls', description='List information about the FILEs (the current directory by default).')
     parser.add_argument('file', nargs='*', help='The files or directorties to list')
     parser.add_argument('--all', '-a', dest='show_all', action='store_true', help='do not ignore entries starting with .')
@@ -71,13 +71,6 @@ class Ls(ShellCommand, cmd='ls'):
                 self.error(f'ls: cannot access {self._rel_to_cwd(path)!r}: No such file or directory')
             else:
                 print_path(path)
-
-
-class Lst(Ls, cmd='lst'):
-    def __call__(self, **kwargs):
-        kwargs['show_all'] = True
-        kwargs['long'] = True
-        return super().__call__(**kwargs)
 
 
 class Cat(ShellCommand, cmd='cat'):
@@ -143,14 +136,6 @@ class Stat(ShellCommand, cmd='stat'):
                 printer.pprint(path.stat().as_dict())
             else:
                 self.error(f'{self.name}: cannot stat {self._rel_to_cwd(path)!r}: No such file or directory')
-
-
-class Info(ShellCommand, cmd='info'):
-    parser = ShellArgParser('info', description='Display device info')
-    parser.add_argument('--format', '-f', dest='out_fmt', choices=Printer.formats, default='yaml', help='The output format to use')
-
-    def __call__(self, out_fmt='yaml'):
-        Printer(out_fmt).pprint(self.ipod.info)
 
 
 class Touch(ShellCommand, cmd='touch'):

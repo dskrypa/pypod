@@ -2,7 +2,15 @@ class ExitLoop(StopIteration):
     pass
 
 
-class CommandError(Exception):
+class ShellError(Exception):
+    pass
+
+
+class CommandError(ShellError):
+    pass
+
+
+class ConfigError(ShellError):
     pass
 
 
