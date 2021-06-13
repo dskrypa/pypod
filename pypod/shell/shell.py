@@ -11,6 +11,7 @@ from datetime import datetime
 from functools import cached_property
 from itertools import count
 from pathlib import Path
+from shutil import get_terminal_size
 from traceback import print_exc, format_exc
 from typing import Optional, Dict, Any
 
@@ -22,7 +23,6 @@ from .color import colored
 from .commands import run_shell_command
 from .completion import FileCompleter
 from .exceptions import ExitLoop, ShellError
-from .utils import Terminal
 
 __all__ = ['iDeviceShell']
 log = logging.getLogger(__name__)
@@ -41,8 +41,7 @@ class iDeviceShell:
         if not history_path.exists():
             history_path.parent.mkdir(parents=True)
         self.session = PromptSession(history=FileHistory(history_path.as_posix()))
-        self._term = Terminal()
-        print(colored('=' * (self._term.width - 1), 6))
+        print(colored('=' * (get_terminal_size().columns - 1), 6))
         self._num = count(len(self.session.history._loaded_strings))
 
     @cached_property
